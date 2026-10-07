@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Crossword Layout Lab</title>
+<style>
+  :root{--bg:#f3f1ec;--panel:#fff;--ink:#111;--muted:#756f66;--line:#d8d2c7;--accent:#111}
+  *{box-sizing:border-box} body{margin:0;font-family:Inter,"Helvetica Neue",Arial,"PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--ink)}
+  .app{display:grid;grid-template-columns:minmax(360px,520px) 1fr;min-height:100vh}
+  .controls{padding:28px;overflow:auto;border-right:1px solid var(--line);background:#faf9f6}
+  h1{font-size:22px;margin:0 0 6px;font-weight:650;letter-spacing:.02em}.sub{font-size:13px;color:var(--muted);line-height:1.6;margin-bottom:22px}
+  label{font-size:12px;color:var(--muted);display:block;margin:14px 0 7px}.row{display:flex;gap:8px;align-items:center}.row>*{min-width:0}
+  input,textarea,button{font:inherit} input[type=text],textarea{width:100%;border:1px solid var(--line);background:white;border-radius:8px;padding:10px 12px;outline:none} textarea{height:138px;resize:vertical;line-height:1.55;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px}
+  input:focus,textarea:focus{border-color:#777}.btn{border:1px solid #111;background:#111;color:white;border-radius:8px;padding:10px 13px;cursor:pointer;font-size:13px}.btn.secondary{background:white;color:#111;border-color:var(--line)}.btn.ghost{background:transparent;color:#111;border-color:transparent;padding:6px 8px}.btn:hover{opacity:.83}
+  .toolbar{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}.sectionTitle{margin-top:22px;font-size:13px;font-weight:650}.entries{margin-top:8px;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:white;max-height:360px;overflow-y:auto}
+  .entry{display:grid;grid-template-columns:28px 130px 1fr 30px;gap:6px;align-items:center;padding:6px 7px;border-bottom:1px solid #eee}.entry:last-child{border-bottom:0}.entry .n{font-size:11px;color:#999;text-align:center}.entry input{border:0;border-radius:4px;padding:7px 5px;font-size:12px;background:#fafafa}.entry input:focus{background:#fff;box-shadow:inset 0 0 0 1px #aaa}.del{border:0;background:transparent;cursor:pointer;color:#999;font-size:16px}.del:hover{color:#111}
+  .settings{display:grid;grid-template-columns:1fr 1fr;gap:10px}.stat{font-size:12px;color:var(--muted);padding:9px 11px;background:#f0eee8;border-radius:8px;line-height:1.5}
+  .previewWrap{padding:26px;display:flex;flex-direction:column;min-width:0}.previewTop{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:14px}.previewTop .actions{display:flex;gap:8px;flex-wrap:wrap}.previewPanel{flex:1;display:flex;justify-content:center;align-items:flex-start;overflow:auto;padding:18px;background:#dedbd4;border-radius:12px;box-shadow:inset 0 0 0 1px #d0ccc4}.paper{box-shadow:0 8px 32px rgba(0,0,0,.13);background:white;width:min(100%,794px);aspect-ratio:210/297}.paper canvas{width:100%;height:100%;display:block}
+  .check{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--muted)} .check input{accent-color:#111}
+  @media(max-width:980px){.app{grid-template-columns:1fr}.controls{border-right:0;border-bottom:1px solid var(--line)}.previewWrap{min-height:900px}}
+</style>
+</head>
+<body>
+<div class="app">
+  <section class="controls">
+    <h1>Crossword Layout Lab</h1>
+    <div class="sub">粘贴“答案 + 空格 + clue”，或直接在表格里编辑。生成器会优先增加交叉、压缩面积，并让整体尽量接近正方形。</div>
+
+    <label>标题</label>
+    <input id="titleInput" type="text" value="CROSSWORD" />
+
+    <label>批量输入</label>
+    <textarea id="pasteBox" spellcheck="false" placeholder="ROADTRIP 一起出发后总会发生故事的旅行方式\nSUNRISE 为了它，我们愿意偶尔早起"></textarea>
+    <div class="toolbar">
+      <button class="btn secondary" id="parseBtn">解析 / 追加</button>
+      <button class="btn secondary" id="replaceBtn">替换全部</button>
+      <button class="btn secondary" id="addBtn">+ 新增一条</button>
+    </div>
+
+    <div class="sectionTitle">答案与提示</div>
+    <div id="entries" class="entries"></div>
+
+    <div class="sectionTitle">生成</div>
+    <div class="toolbar">
+      <button class="btn" id="generateBtn">重新生成</button>
+      <button class="btn secondary" id="bestBtn">多跑几版，选最紧凑</button>
+    </div>
+    <div class="settings">
+      <div class="stat" id="stats">尚未生成</div>
+      <label class="check"><input id="showAnswers" type="checkbox"> 预览答案</label>
+    </div>
+  </section>
+
+  <section class="previewWrap">
+    <div class="previewTop">
+      <div><b>A4 预览</b><div style="font-size:12px;color:#777;margin-top:3px">参考你的最终版：标题 + 黑白字谜 + Across / Down 双栏。</div></div>
+      <div class="actions">
+        <button class="btn secondary" id="pngBtn">下载 PNG</button>
+        <button class="btn secondary" id="pdfBtn">下载 PDF</button>
+      </div>
+    </div>
+    <div class="previewPanel"><div class="paper"><canvas id="page" width="1240" height="1754"></canvas></div></div>
+  </section>
+</div>
+<script>
+const DEFAULT = `ROADTRIP 一起出发后总会发生故事的旅行方式
+SUNRISE 为了它，我们愿意偶尔早起
+COFFEE 聊很久时经常会出现的饮料
+MUSEUM 下雨天也很适合一起去的地方
+PICNIC 把普通下午变成小旅行的方式
+CONCERT 听到熟悉前奏就会互相看一眼的现场
+POSTCARD 旅行途中很适合寄给朋友的小东西
+CAMERA 帮我们留住很多瞬间的工具
+BOOKSTORE 很容易一逛就忘记时间的地方
+TRAIN 窗外风景一直变化的旅行方式
+SUNSET 走累以后很适合停下来看一会儿
+NOODLES 深夜也很有吸引力的一顿饭
+CAKE 今天出现得非常合理的甜点
+CANDLE 吹灭之前可以偷偷许愿
+CHEERS 举起杯子时会说的话
+LAUGHTER 很多共同回忆里的背景音
+WANDER 没有目的地也可以做的事
+CURIOUS 希望一直保留的状态
+FREEDOM 希望新一岁拥有得更多的东西
+COURAGE 想做新事情时很有用的东西
+LUCK 生日时很适合多一点的东西
+JOY 希望日常里经常出现的东西
+REST 忙完以后别忘了做的事
+DREAM 值得继续拥有，也值得慢慢实现
+CREATE 把脑子里的想法变成现实
+EXPLORE 去没去过的地方，也试没试过的事
+FRIENDSHIP 让很多普通日子变得特别的关系
+MEMORY 时间过去以后还会留下来的东西
+SURPRISE 礼物里最好保留一点的东西
+BIRTHDAY 今天这张字谜存在的理由`;
+
+let entries=[]; let current=null; let generationCounter=0;
+function parseLines(text){
+  return text.split(/\r?\n/).map(s=>s.trim()).filter(Boolean).map(line=>{
+    const m=line.match(/^(\S+)\s+(.+)$/); if(!m) return null;
+    return {answer:normalizeAnswer(m[1]), clue:m[2].trim()};
+  }).filter(Boolean);
+}
+function normalizeAnswer(s){return (s||'').toUpperCase().replace(/[^A-Z0-9]/g,'')}
+function renderEntries(){
+  const box=document.getElementById('entries'); box.innerHTML='';
+  entries.forEach((e,i)=>{
+    const d=document.createElement('div'); d.className='entry';
+    d.innerHTML=`<span class="n">${i+1}</span><input class="ans" value="${escapeAttr(e.answer)}"><input class="clue" value="${escapeAttr(e.clue)}"><button class="del" title="删除">×</button>`;
+    const [ans,clue]=d.querySelectorAll('input');
+    ans.oninput=()=>{entries[i].answer=normalizeAnswer(ans.value); ans.value=entries[i].answer};
+    clue.oninput=()=>entries[i].clue=clue.value;
+    d.querySelector('.del').onclick=()=>{entries.splice(i,1);renderEntries()}; box.appendChild(d);
+  });
+}
+function escapeAttr(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;')}
+
+// Crossword generation -----------------------------------------------------
+function key(x,y){return x+','+y}
+function rng(seed){let t=seed>>>0; return ()=>{t+=0x6D2B79F5;let r=Math.imul(t^t>>>15,1|t);r^=r+Math.imul(r^r>>>7,61|r);return ((r^r>>>14)>>>0)/4294967296}}
+function shuffledWeighted(words,R){
+  return words.map(w=>({w,score:w.answer.length*10 + R()*35})).sort((a,b)=>b.score-a.score).map(x=>x.w)
+}
+function boundsOf(placements){
+  if(!placements.length)return {minX:0,maxX:0,minY:0,maxY:0,w:1,h:1,area:1};
+  let minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity;
+  for(const p of placements){let x2=p.x+(p.dir==='A'?p.answer.length-1:0),y2=p.y+(p.dir==='D'?p.answer.length-1:0);minX=Math.min(minX,p.x,x2);maxX=Math.max(maxX,p.x,x2);minY=Math.min(minY,p.y,y2);maxY=Math.max(maxY,p.y,y2)}
+  return {minX,maxX,minY,maxY,w:maxX-minX+1,h:maxY-minY+1,area:(maxX-minX+1)*(maxY-minY+1)}
+}
+function buildGrid(placements){
+  const cells=new Map();
+  for(const p of placements) for(let i=0;i<p.answer.length;i++){
+    const x=p.x+(p.dir==='A'?i:0), y=p.y+(p.dir==='D'?i:0), k=key(x,y);
+    if(!cells.has(k)) cells.set(k,{ch:p.answer[i],dirs:new Set(),refs:[]});
+    const c=cells.get(k); c.dirs.add(p.dir); c.refs.push(p);
+  }
+  return cells;
+}
+function canPlace(word,x,y,dir,cells,requireCross=true){
+  let crosses=0;
+  const dx=dir==='A'?1:0, dy=dir==='D'?1:0;
+  // clear cell before/after
+  if(cells.has(key(x-dx,y-dy)) || cells.has(key(x+dx*word.length,y+dy*word.length))) return null;
+  for(let i=0;i<word.length;i++){
+    const xx=x+dx*i, yy=y+dy*i, c=cells.get(key(xx,yy));
+    if(c){
+      if(c.ch!==word[i] || c.dirs.has(dir)) return null;
+      crosses++;
+    } else {
+      // prevent side-by-side adjacency for new cells
+      if(dir==='A') { if(cells.has(key(xx,yy-1))||cells.has(key(xx,yy+1))) return null; }
+      else { if(cells.has(key(xx-1,yy))||cells.has(key(xx+1,yy))) return null; }
+    }
+  }
+  if(requireCross && crosses===0)return null;
+  return crosses;
+}
+function candidatesFor(w,placements,R){
+  const cells=buildGrid(placements), cands=[];
+  for(const [k,c] of cells){
+    const [cx,cy]=k.split(',').map(Number);
+    for(let i=0;i<w.answer.length;i++) if(w.answer[i]===c.ch){
+      for(const dir of ['A','D']){
+        if(c.dirs.has(dir)) continue;
+        const x=cx-(dir==='A'?i:0), y=cy-(dir==='D'?i:0);
+        const crosses=canPlace(w.answer,x,y,dir,cells,true); if(crosses==null)continue;
+        const p={...w,x,y,dir}; const b=boundsOf([...placements,p]);
+        const aspect=Math.abs(Math.log(b.w/b.h));
+        const score=crosses*90 - b.area*0.58 - aspect*34 - Math.max(b.w,b.h)*0.35 + R()*10;
+        cands.push({p,score,crosses});
+      }
+    }
+  }
+  cands.sort((a,b)=>b.score-a.score); return cands;
+}
+function oneAttempt(words,seed){
+  const R=rng(seed), order=shuffledWeighted(words,R), placements=[]; if(!order.length)return null;
+  const first=order.shift(); placements.push({...first,x:0,y:0,dir:R()<.5?'A':'D'});
+  let pending=order.slice(), stalled=0;
+  while(pending.length && stalled<3){
+    const next=[]; let progress=0;
+    for(const w of pending){
+      const cs=candidatesFor(w,placements,R);
+      if(cs.length){ const pick=cs[Math.min(cs.length-1, Math.floor(Math.pow(R(),3)*Math.min(5,cs.length)))]; placements.push(pick.p); progress++; }
+      else next.push(w);
+    }
+    if(!progress) stalled++; else stalled=0; pending=next;
+  }
+  const b=boundsOf(placements), cells=buildGrid(placements); let intersections=0; for(const c of cells.values())if(c.dirs.size>1)intersections++;
+  const aspect=Math.abs(Math.log(b.w/b.h));
+  const objective=placements.length*100000 + intersections*260 - b.area*10 - aspect*260 - Math.max(b.w,b.h)*4;
+  return {placements,b,intersections,unplaced:pending,objective};
+}
+function generate(attempts=260){
+  const words=entries.map((e,i)=>({...e,id:i})).filter(e=>e.answer.length>=2);
+  if(!words.length)return;
+  let best=null, base=Date.now()+generationCounter++*99991;
+  for(let i=0;i<attempts;i++){
+    const r=oneAttempt(words,base+i*2654435761); if(r && (!best||r.objective>best.objective))best=r;
+  }
+  current=best; numberPuzzle(); renderPage(); updateStats();
+}
+function numberPuzzle(){
+  if(!current)return;
+  const b=current.b; for(const p of current.placements){p.x-=b.minX;p.y-=b.minY}
+  current.b=boundsOf(current.placements);
+  const starts=new Map(); current.placements.forEach(p=>{const k=key(p.x,p.y);if(!starts.has(k))starts.set(k,[]);starts.get(k).push(p)});
+  const ordered=[...starts.entries()].map(([k,ps])=>{const [x,y]=k.split(',').map(Number);return{x,y,ps}}).sort((a,b)=>a.y-b.y||a.x-b.x);
+  ordered.forEach((s,i)=>s.ps.forEach(p=>p.num=i+1));
+  current.across=current.placements.filter(p=>p.dir==='A').sort((a,b)=>a.num-b.num);
+  current.down=current.placements.filter(p=>p.dir==='D').sort((a,b)=>a.num-b.num);
+}
+function updateStats(){
+  if(!current)return; const b=current.b, total=entries.filter(e=>e.answer.length>=2).length;
+  document.getElementById('stats').innerHTML=`${b.w} × ${b.h} 格<br>已排 ${current.placements.length}/${total} 词 · ${current.intersections} 个交叉${current.unplaced.length?'<br>未排：'+current.unplaced.map(x=>x.answer).join(', '):''}`;
+}
+
+// A4 rendering --------------------------------------------------------------
+const canvas=document.getElementById('page'), ctx=canvas.getContext('2d');
+function renderPage(){
+  const W=canvas.width,H=canvas.height;ctx.clearRect(0,0,W,H);ctx.fillStyle='#fff';ctx.fillRect(0,0,W,H); if(!current)return;
+  ctx.fillStyle='#0a0a0a'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  const title=(document.getElementById('titleInput').value||'CROSSWORD').toUpperCase();
+  drawSpacedText(title,W/2,82,54,28,'500 54px Arial');
+
+  const b=current.b; const maxGridW=1025, maxGridH=810; const cell=Math.floor(Math.min(maxGridW/b.w,maxGridH/b.h));
+  const gridW=b.w*cell,gridH=b.h*cell,gx=Math.round((W-gridW)/2),gy=145;
+  ctx.fillStyle='#000';ctx.fillRect(gx,gy,gridW,gridH);
+  const cells=buildGrid(current.placements); const starts=new Map(); current.placements.forEach(p=>{starts.set(key(p.x,p.y),p.num)});
+  const show=document.getElementById('showAnswers').checked;
+  for(const [k,c] of cells){
+    const [x,y]=k.split(',').map(Number),px=gx+x*cell,py=gy+y*cell;
+    ctx.fillStyle='#fff';ctx.fillRect(px+.5,py+.5,cell-1,cell-1);ctx.strokeStyle='#111';ctx.lineWidth=1.2;ctx.strokeRect(px+.5,py+.5,cell-1,cell-1);
+    if(starts.has(k)){ctx.fillStyle='#111';ctx.textAlign='left';ctx.textBaseline='top';ctx.font=`${Math.max(11,Math.floor(cell*.22))}px Arial`;ctx.fillText(starts.get(k),px+3,py+2)}
+    if(show){ctx.fillStyle='#111';ctx.textAlign='center';ctx.textBaseline='middle';ctx.font=`500 ${Math.max(18,Math.floor(cell*.52))}px Arial`;ctx.fillText(c.ch,px+cell/2,py+cell*.56)}
+  }
+
+  const clueTop=gy+gridH+42; const margin=100, gap=70, colW=(W-margin*2-gap)/2;
+  drawClueColumn('ACROSS',current.across,margin,clueTop,colW);
+  drawClueColumn('DOWN',current.down,margin+colW+gap,clueTop,colW);
+}
+function drawSpacedText(text,cx,y,fontSize,spacing,font){
+  ctx.font=font;ctx.fillStyle='#111';let widths=[...text].map(ch=>ctx.measureText(ch).width);let total=widths.reduce((a,b)=>a+b,0)+spacing*(text.length-1),x=cx-total/2;ctx.textAlign='left';ctx.textBaseline='middle';
+  [...text].forEach((ch,i)=>{ctx.fillText(ch,x,y);x+=widths[i]+spacing});
+}
+function wrapText(text,maxWidth,font){ctx.font=font;const out=[];let line='';for(const ch of [...text]){const test=line+ch;if(ctx.measureText(test).width>maxWidth && line){out.push(line);line=ch}else line=test}if(line)out.push(line);return out}
+function drawClueColumn(header,list,x,y,w){
+  ctx.fillStyle='#111';ctx.textAlign='left';ctx.textBaseline='top';ctx.font='700 19px Arial, "PingFang SC", sans-serif';ctx.fillText(header,x,y);y+=34;
+  let fontSize=17,lineH=25;
+  // shrink until column fits page
+  while(fontSize>13){let yy=y;for(const p of list){const lines=wrapText(p.clue,w-54,`${fontSize}px Arial, "PingFang SC", sans-serif`);yy+=Math.max(lineH,lines.length*(fontSize+5))+5}if(yy<1710)break;fontSize--;lineH=fontSize+7}
+  for(const p of list){
+    ctx.font=`${fontSize}px Arial, "PingFang SC", sans-serif`;ctx.fillStyle='#111';ctx.fillText(String(p.num),x,y);
+    const lines=wrapText(p.clue,w-54,`${fontSize}px Arial, "PingFang SC", sans-serif`);let yy=y;for(const ln of lines){ctx.fillText(ln,x+48,yy);yy+=fontSize+5}y+=Math.max(lineH,lines.length*(fontSize+5))+5;
+  }
+}
+
+// Export -------------------------------------------------------------------
+function downloadURL(url,name){const a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove()}
+function pngExport(){renderPage();downloadURL(canvas.toDataURL('image/png'),'crossword-a4.png')}
+function dataURLBytes(url){const b64=url.split(',')[1],bin=atob(b64),arr=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);return arr}
+function makePdfFromCanvas(){
+  renderPage(); const jpeg=canvas.toDataURL('image/jpeg',0.94), jpg=dataURLBytes(jpeg); const pw=595.28,ph=841.89; const parts=[]; let len=0; const offsets=[];
+  const enc=s=>new TextEncoder().encode(s); const push=v=>{const a=typeof v==='string'?enc(v):v;parts.push(a);len+=a.length};
+  push('%PDF-1.4\n');
+  function obj(n,body){offsets[n]=len;push(`${n} 0 obj\n`);push(body);push('\nendobj\n')}
+  obj(1,'<< /Type /Catalog /Pages 2 0 R >>');
+  obj(2,'<< /Type /Pages /Kids [3 0 R] /Count 1 >>');
+  obj(3,`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pw} ${ph}] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>`);
+  offsets[4]=len;push('4 0 obj\n');push(`<< /Type /XObject /Subtype /Image /Width ${canvas.width} /Height ${canvas.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpg.length} >>\nstream\n`);push(jpg);push('\nendstream\nendobj\n');
+  const stream=`q\n${pw} 0 0 ${ph} 0 0 cm\n/Im0 Do\nQ\n`;obj(5,`<< /Length ${stream.length} >>\nstream\n${stream}endstream`);
+  const xref=len;push('xref\n0 6\n0000000000 65535 f \n');for(let i=1;i<=5;i++)push(String(offsets[i]).padStart(10,'0')+' 00000 n \n');push(`trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`);
+  const blob=new Blob(parts,{type:'application/pdf'});downloadURL(URL.createObjectURL(blob),'crossword-a4.pdf');setTimeout(()=>URL.revokeObjectURL(blob),5000);
+}
+
+// UI -----------------------------------------------------------------------
+document.getElementById('parseBtn').onclick=()=>{entries.push(...parseLines(document.getElementById('pasteBox').value));renderEntries()};
+document.getElementById('replaceBtn').onclick=()=>{entries=parseLines(document.getElementById('pasteBox').value);renderEntries()};
+document.getElementById('addBtn').onclick=()=>{entries.push({answer:'',clue:''});renderEntries();document.getElementById('entries').scrollTop=99999};
+document.getElementById('generateBtn').onclick=()=>generate(280);
+document.getElementById('bestBtn').onclick=()=>generate(1400);
+document.getElementById('showAnswers').onchange=renderPage;document.getElementById('titleInput').oninput=renderPage;
+document.getElementById('pngBtn').onclick=pngExport;document.getElementById('pdfBtn').onclick=makePdfFromCanvas;
+entries=parseLines(DEFAULT);document.getElementById('pasteBox').value=DEFAULT;renderEntries();generate(220);
+</script>
+</body>
+</html>
